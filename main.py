@@ -90,10 +90,6 @@ def main():
         # Plays
         plays_df = results['plays']
         print(f"\nPlays DataFrame ({len(plays_df)} rows):")
-        print(f"Columns: {list(plays_df.columns)}")
-        if len(plays_df) > 0:
-            print("\nFirst 5 plays:")
-            print(plays_df.head().to_string())
         
         # Player stats - Box Score
         player_stats_df = results['player_stats']
@@ -139,22 +135,14 @@ def main():
         # Team stats
         team_stats_df = results['team_stats']
         print(f"\nTeam Stats DataFrame ({len(team_stats_df)} rows):")
-        if len(team_stats_df) > 0:
-            print(team_stats_df[['team_name', 'points', 'field_goals_made', 'field_goals_attempted', 'rebounds', 'assists']].to_string(index=False))
         
         # Lineups
         lineup_df = results['lineups']
         print(f"\nLineup DataFrame ({len(lineup_df)} rows):")
-        if len(lineup_df) > 0:
-            print("\nSample lineup data:")
-            print(lineup_df.head().to_string())
         
         # Enhanced Play-by-Play
         enhanced_play_by_play_df = results['enhanced_play_by_play']
         print(f"\nEnhanced Play-by-Play DataFrame ({len(enhanced_play_by_play_df)} rows):")
-        if len(enhanced_play_by_play_df) > 0:
-            print("\nSample enhanced play-by-play data:")
-            print(enhanced_play_by_play_df.head().to_string())
         
         # Save results to CSV files
         print("\n" + "="*50)
@@ -217,76 +205,6 @@ def main():
         return None
 
 
-def analyze_game_data(results):
-    """
-    Perform additional analysis on the parsed game data.
-    
-    Args:
-        results (dict): Results from the PlayByPlayProcessor
-    """
-    if not results:
-        print("No data to analyze.")
-        return
-    
-    print("\n" + "="*50)
-    print("ADDITIONAL ANALYSIS")
-    print("="*50)
-    
-    plays_df = results['plays']
-    player_stats_df = results['player_stats']
-    team_stats_df = results['team_stats']
-    
-    if len(plays_df) == 0:
-        print("No plays data available for analysis.")
-        return
-    
-    # Game flow analysis
-    print("\nGame Flow Analysis:")
-    periods = plays_df['period'].unique()
-    print(f"Number of periods: {len(periods)}")
-    
-    for period in sorted(periods):
-        period_plays = plays_df[plays_df['period'] == period]
-        print(f"Period {period}: {len(period_plays)} plays")
-    
-    # Scoring analysis
-    print("\nScoring Analysis:")
-    scoring_plays = plays_df[plays_df['points'] > 0]
-    print(f"Total scoring plays: {len(scoring_plays)}")
-    print(f"Total points scored: {scoring_plays['points'].sum()}")
-    
-    # Event type distribution
-    print("\nEvent Type Distribution:")
-    event_counts = plays_df['event_type'].value_counts()
-    print(event_counts.head(10))
-    
-    # Player performance analysis
-    if len(player_stats_df) > 0:
-        print("\nPlayer Performance Analysis:")
-        
-        # Most efficient scorers (minimum 5 attempts)
-        efficient_scorers = player_stats_df[player_stats_df['field_goals_attempted'] >= 5].copy()
-        if len(efficient_scorers) > 0:
-            efficient_scorers['efficiency'] = efficient_scorers['points'] / efficient_scorers['field_goals_attempted']
-            top_efficient = efficient_scorers.nlargest(5, 'efficiency')[['player_name', 'team_name', 'efficiency', 'points', 'field_goals_attempted']]
-            print("\nMost efficient scorers (min 5 attempts):")
-            print(top_efficient.to_string(index=False))
-        
-        # Triple-double candidates
-        triple_double_candidates = player_stats_df[
-            (player_stats_df['points'] >= 10) & 
-            (player_stats_df['rebounds'] >= 10) & 
-            (player_stats_df['assists'] >= 10)
-        ]
-        if len(triple_double_candidates) > 0:
-            print("\nTriple-double candidates:")
-            print(triple_double_candidates[['player_name', 'team_name', 'points', 'rebounds', 'assists']].to_string(index=False))
-
-
 if __name__ == "__main__":
     # Run the main parser
-    results = main()
-    
-    # Perform additional analysis if data is available
-    if results:
-        analyze_game_data(results) 
+    main() 
