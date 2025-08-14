@@ -15,29 +15,36 @@ def get_team_names_from_data(df):
     Determine home and away team names from the data.
     Returns tuple of (home_team_name, away_team_name)
     """
-    # Look at the first few rows to determine team names
-    home_team_name = "Home Team"
-    away_team_name = "Away Team"
-    
-    # Get unique teams from the data
-    unique_teams = df['team'].dropna().unique()
-    
-    if len(unique_teams) >= 2:
-        # For this dataset, we know the pattern - but in general, we'd need to determine
-        # which team is home vs away from the data structure
-        # This is a simple heuristic - in a real implementation, you might want to
-        # read this from game metadata or configuration
+    # Try to read team info from the game data
+    try:
+        from basketball_parser import BasketballParser
+        parser = BasketballParser('example.XML')
+        parser.parse()
         
-        # Check if we have the expected teams
-        teams_list = [str(team) for team in unique_teams]
+        # Get home and away team names from the parsed game info
+        home_team_name = parser.game_info.get('home_team', 'Home Team')
+        away_team_name = parser.game_info.get('away_team', 'Away Team')
         
-        # Simple logic for this dataset - can be made more robust
-        if 'Wake Forest' in teams_list:
-            home_team_name = 'Wake Forest'
-        if 'Michigan' in teams_list:
-            away_team_name = 'Michigan'
-    
-    return home_team_name, away_team_name
+        return home_team_name, away_team_name
+        
+    except Exception as e:
+        # Fallback: determine from the play data
+        unique_teams = df['team'].dropna().unique()
+        
+        if len(unique_teams) >= 2:
+            # Convert to list of team names
+            teams_list = [str(team) for team in unique_teams]
+            
+            # Use alphabetical order as fallback
+            teams_list.sort()
+            home_team_name = teams_list[0]
+            away_team_name = teams_list[1]
+        else:
+            # Fallback if we can't determine teams
+            home_team_name = "Home Team"
+            away_team_name = "Away Team"
+        
+        return home_team_name, away_team_name
 
 def filter_and_clean_lineups(df):
     """

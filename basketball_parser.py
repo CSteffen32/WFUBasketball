@@ -508,11 +508,11 @@ class PlayByPlayProcessor:
         home_team_id = self.parser.game_info.get('home_id', 'WF')
         away_team_id = self.parser.game_info.get('away_id', 'Mich')
         
-        # Initialize lineups with starting players ONLY
+        # Initialize lineups with starting players
         home_lineup = set()
         away_lineup = set()
         
-        # Add ONLY starting players to lineups
+        # Add starting players to lineups
         for player in starting_lineups.get('home', []):
             if 'player_id' in player:
                 home_lineup.add(player['player_id'])
@@ -525,56 +525,76 @@ class PlayByPlayProcessor:
         current_home_lineup = home_lineup.copy()
         current_away_lineup = away_lineup.copy()
         
+        # If we don't have starting lineups, try to infer from early plays
+        if len(current_home_lineup) == 0 or len(current_away_lineup) == 0:
+            # Look at the first few plays to identify players who are likely starters
+            early_plays = self.plays_df.head(20)  # First 20 plays
+            home_players = set()
+            away_players = set()
+            
+            for _, play in early_plays.iterrows():
+                player_id = play['player_id']
+                team_id = play['team_id']
+                
+                if player_id and team_id:
+                    if team_id == home_team_id:
+                        home_players.add(player_id)
+                    elif team_id == away_team_id:
+                        away_players.add(player_id)
+            
+            # Use the first 5 players from each team as starters
+            if len(current_home_lineup) == 0:
+                current_home_lineup = set(list(home_players)[:5])
+            if len(current_away_lineup) == 0:
+                current_away_lineup = set(list(away_players)[:5])
+        
+
+        
+        # Track all players who have been on the court for each team
+        all_home_players = current_home_lineup.copy()
+        all_away_players = current_away_lineup.copy()
+        
+        # Also collect all players who appear in any play for each team
+        for _, play in self.plays_df.iterrows():
+            player_id = play['player_id']
+            team_id = play['team_id']
+            
+            if player_id and team_id:
+                if team_id == home_team_id:
+                    all_home_players.add(player_id)
+                elif team_id == away_team_id:
+                    all_away_players.add(player_id)
+        
         for _, play in self.plays_df.iterrows():
             event_type = play['event_type'].lower()
             team_id = play['team_id']
             
             # Handle substitutions to update current lineups
             if 'substitution' in event_type:
-                player_in = play['substitution_in']
-                player_out = play['substitution_out']
                 player_id = play['player_id']
                 description = play.get('description', '').lower()
                 
-                # Convert jersey numbers to full player IDs if needed
-                if player_in and not str(player_in).startswith(('WF_', 'Mich_')):
-                    # Convert jersey number to full player ID
-                    jersey_num = str(int(float(player_in))) if player_in else None
-                    if jersey_num and team_id == home_team_id:
-                        player_in = f"{home_team_id}_{jersey_num}"
-                    elif jersey_num and team_id == away_team_id:
-                        player_in = f"{away_team_id}_{jersey_num}"
-                
-                if player_out and not str(player_out).startswith(('WF_', 'Mich_')):
-                    # Convert jersey number to full player ID
-                    jersey_num = str(int(float(player_out))) if player_out else None
-                    if jersey_num and team_id == home_team_id:
-                        player_out = f"{home_team_id}_{jersey_num}"
-                    elif jersey_num and team_id == away_team_id:
-                        player_out = f"{away_team_id}_{jersey_num}"
-                
                 # Handle substitutions based on description
-                if 'enters' in description:
+                if 'enters' in description or 'in' in description:
                     if team_id == home_team_id:
                         current_home_lineup.add(player_id)
+                        all_home_players.add(player_id)
                     elif team_id == away_team_id:
                         current_away_lineup.add(player_id)
-                elif 'exits' in description:
+                        all_away_players.add(player_id)
+                elif 'exits' in description or 'out' in description:
                     if team_id == home_team_id and player_id in current_home_lineup:
                         current_home_lineup.remove(player_id)
                     elif team_id == away_team_id and player_id in current_away_lineup:
                         current_away_lineup.remove(player_id)
                 
-                # Also handle the case where substitution_in/out fields are populated
-                if player_in and team_id == home_team_id:
-                    current_home_lineup.add(player_in)
-                elif player_in and team_id == away_team_id:
-                    current_away_lineup.add(player_in)
-                
-                if player_out and team_id == home_team_id and player_out in current_home_lineup:
-                    current_home_lineup.remove(player_out)
-                elif player_out and team_id == away_team_id and player_out in current_away_lineup:
-                    current_away_lineup.remove(player_out)
+                # Ensure we maintain exactly 5 players per team
+                if len(current_home_lineup) > 5:
+                    # Remove the most recently added player if we have more than 5
+                    current_home_lineup = set(list(current_home_lineup)[:5])
+                if len(current_away_lineup) > 5:
+                    # Remove the most recently added player if we have more than 5
+                    current_away_lineup = set(list(current_away_lineup)[:5])
             
             # Create enhanced event description
             enhanced_description = self._create_enhanced_event_description(play)
@@ -594,6 +614,20 @@ class PlayByPlayProcessor:
                         if player.get('player_id') == player_id:
                             player_name = player.get('player_name', '')
                             break
+                
+                # If still no name, try to get from plays data
+                if not player_name:
+                    for _, play_row in self.plays_df.iterrows():
+                        if play_row['player_id'] == player_id and play_row['player_name']:
+                            player_name = play_row['player_name']
+                            break
+                
+                # If still no name, try to extract from player_id
+                if not player_name and player_id:
+                    # Extract jersey number from player_id (format: Team_Number)
+                    if '_' in player_id:
+                        jersey_num = player_id.split('_')[1]
+                        player_name = f"Player #{jersey_num}"
                 
                 if player_name:
                     # Clean up player name formatting
@@ -618,6 +652,20 @@ class PlayByPlayProcessor:
                             player_name = player.get('player_name', '')
                             break
                 
+                # If still no name, try to get from plays data
+                if not player_name:
+                    for _, play_row in self.plays_df.iterrows():
+                        if play_row['player_id'] == player_id and play_row['player_name']:
+                            player_name = play_row['player_name']
+                            break
+                
+                # If still no name, try to extract from player_id
+                if not player_name and player_id:
+                    # Extract jersey number from player_id (format: Team_Number)
+                    if '_' in player_id:
+                        jersey_num = player_id.split('_')[1]
+                        player_name = f"Player #{jersey_num}"
+                
                 if player_name:
                     # Clean up player name formatting
                     if ',' in player_name:
@@ -629,11 +677,118 @@ class PlayByPlayProcessor:
                     player_name = player_name.title()
                     away_lineup_names.append(player_name)
             
-            # Ensure exactly 5 players per team
+            # If we don't have 5 players, try to fill in from all players who have been on the court
             while len(home_lineup_names) < 5:
-                home_lineup_names.append("Unknown")
+                # Look for players in all_home_players who aren't already in the lineup
+                for player_id in all_home_players:
+                    if len(home_lineup_names) >= 5:
+                        break
+                    
+                    # Check if this player is already in the lineup
+                    player_already_in_lineup = False
+                    for existing_player_id in current_home_lineup:
+                        if existing_player_id == player_id:
+                            player_already_in_lineup = True
+                            break
+                    
+                    if not player_already_in_lineup:
+                        # Try to get player name
+                        player_name = None
+                        if player_id in self.parser.players:
+                            player_name = self.parser.players[player_id].get('name', '')
+                        else:
+                            # Try to get from starting lineups
+                            for player in starting_lineups.get('home', []):
+                                if player.get('player_id') == player_id:
+                                    player_name = player.get('player_name', '')
+                                    break
+                        
+                        # If still no name, try to get from plays data
+                        if not player_name:
+                            for _, play_row in self.plays_df.iterrows():
+                                if play_row['player_id'] == player_id and play_row['player_name']:
+                                    player_name = play_row['player_name']
+                                    break
+                        
+                        # If still no name, extract from player_id
+                        if not player_name and player_id:
+                            if '_' in player_id:
+                                jersey_num = player_id.split('_')[1]
+                                player_name = f"Player #{jersey_num}"
+                        
+                        if player_name:
+                            # Clean up player name formatting
+                            if ',' in player_name:
+                                parts = player_name.split(',')
+                                if len(parts) == 2:
+                                    last_name = parts[0].strip()
+                                    first_name = parts[1].strip()
+                                    player_name = f"{first_name} {last_name}"
+                            player_name = player_name.title()
+                            home_lineup_names.append(player_name)
+                            break
+            
+            # Same logic for away team
             while len(away_lineup_names) < 5:
-                away_lineup_names.append("Unknown")
+                # Look for players in all_away_players who aren't already in the lineup
+                for player_id in all_away_players:
+                    if len(away_lineup_names) >= 5:
+                        break
+                    
+                    # Check if this player is already in the lineup
+                    player_already_in_lineup = False
+                    for existing_player_id in current_away_lineup:
+                        if existing_player_id == player_id:
+                            player_already_in_lineup = True
+                            break
+                    
+                    if not player_already_in_lineup:
+                        # Try to get player name
+                        player_name = None
+                        if player_id in self.parser.players:
+                            player_name = self.parser.players[player_id].get('name', '')
+                        else:
+                            # Try to get from starting lineups
+                            for player in starting_lineups.get('away', []):
+                                if player.get('player_id') == player_id:
+                                    player_name = player.get('player_name', '')
+                                    break
+                        
+                        # If still no name, try to get from plays data
+                        if not player_name:
+                            for _, play_row in self.plays_df.iterrows():
+                                if play_row['player_id'] == player_id and play_row['player_name']:
+                                    player_name = play_row['player_name']
+                                    break
+                        
+                        # If still no name, extract from player_id
+                        if not player_name and player_id:
+                            if '_' in player_id:
+                                jersey_num = player_id.split('_')[1]
+                                player_name = f"Player #{jersey_num}"
+                        
+                        if player_name:
+                            # Clean up player name formatting
+                            if ',' in player_name:
+                                parts = player_name.split(',')
+                                if len(parts) == 2:
+                                    last_name = parts[0].strip()
+                                    first_name = parts[1].strip()
+                                    player_name = f"{first_name} {last_name}"
+                            player_name = player_name.title()
+                            away_lineup_names.append(player_name)
+                            break
+            
+            # If we still don't have 5 players, use jersey numbers as fallback
+            while len(home_lineup_names) < 5:
+                missing_count = 5 - len(home_lineup_names)
+                for i in range(missing_count):
+                    home_lineup_names.append(f"Player #{i+1}")
+            
+            while len(away_lineup_names) < 5:
+                missing_count = 5 - len(away_lineup_names)
+                for i in range(missing_count):
+                    away_lineup_names.append(f"Player #{i+1}")
             
             enhanced_play = {
                 'play_id': play['play_id'],
